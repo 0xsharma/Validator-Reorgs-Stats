@@ -1,5 +1,6 @@
 const axios = require("axios");
 const Web3 = require('web3');
+const fs = require('fs')
 
 var WSWEB3 = 'ws://localhost:8546'  // WebSocket endpoint for the RPC server
 var HTTPSWEB3 = 'http://localhost:8545'  // HTTP endpoint for the RPC server 
@@ -9,12 +10,16 @@ var web3 = new Web3(Web3.givenProvider || WSWEB3);
 var config
 var apiKey
 
+var startBlock = 25085190; //starting block for stable ethstats-backednd
+
 var mapReorged = new Map(); //map for storing the validators and number of blocks displaced by them
 var mapRemoved = new Map(); // map for storing the validators and the number of their blocks removed
 var mapMined = new Map(); //map for storing the validators and number of canonical blocks mined by them
 var mapReorgedPercentage = new Map();   //map for storing the validators and the percentage of the blocks reorged by them
 var mapRemovedPercentage = new Map();   //map for storing the validators and the percentage of their blocks removed
 var mapRemovedGasUsed = new Map(); //map for storing the validators and average gasUsed by their dropped blocks. 
+
+var validators = {}
 
 async function getBlockValidator(blockNum){
     var hexBlockNum = '0x' + blockNum.toString(16)
@@ -38,7 +43,7 @@ async function getLatestBlocks() {
     await axios.post(`http://ethstats-backend-alb-145109141.us-west-2.elb.amazonaws.com:8080/v1/graphql`, {
         query: `
         {
-            headentry(where: {typ: {_eq: "del"}}, distinct_on: block_number) {
+            headentry(where: {typ: {_eq: "del"}, block: {number: {_gte: ${startBlock}}}}, distinct_on: block_number) {
               block {
                 number
                 miner
@@ -47,6 +52,7 @@ async function getLatestBlocks() {
               }
             }
           }
+          
           `,
     },config)
     .then(async (response) => {
@@ -80,21 +86,21 @@ async function getLatestBlocks() {
                 }
             }
         }
-        console.log("Validators and number of blocks displaced by them\n\n", mapReorged, "\n\n");
-        console.log("Validators and the number of their blocks removed\n\n", mapRemoved, "\n\n");
-        console.log("Validators and average gasUsed by their dropped blocks\n\n", mapRemovedGasUsed, "\n\n");
+        // console.log("Validators and number of blocks displaced by them\n\n", mapReorged, "\n\n");
+        // console.log("Validators and the number of their blocks removed\n\n", mapRemoved, "\n\n");
+        // console.log("Validators and average gasUsed by their dropped blocks\n\n", mapRemovedGasUsed, "\n\n");
     })
 }
 
 async function getAllBlocks() {
-    var startBlock = 25085190; //starting block for stable ethstats-backednd
     endBlock = await web3.eth.getBlockNumber(); //ending block for stable ethstats-backednd
     for(var i = startBlock; i<=endBlock; i++){
+        console.log(i)
         var block = await web3.eth.getBlock(i);
         if(block===null){
             continue;
         }
-        var blockMiner = block.miner;
+        var blockMiner = await getBlockValidator(i);
 
         if(mapMined.get((blockMiner))===undefined){
             mapMined.set(blockMiner, 1);
@@ -105,7 +111,7 @@ async function getAllBlocks() {
         
     }
 
-    console.log("Validators and number of canonical blocks mined by them\n\n", mapMined, "\n\n");
+    // console.log("Validators and number of canonical blocks mined by them\n\n", mapMined, "\n\n");
 
     //calculating the percentage of blocks reorged per miner
     for(var [key, value] of mapReorged.entries()){
@@ -119,9 +125,19 @@ async function getAllBlocks() {
         mapRemovedPercentage.set(key, removedPercentage);
     }
 
-    console.log("Validators and the percentage of the blocks reorged by them\n\n", mapReorgedPercentage, "\n\n");
-    console.log("Validators and the percentage of their blocks removed\n\n", mapRemovedPercentage, "\n\n");
+    // console.log("Validators and the percentage of the blocks reorged by them\n\n", mapReorgedPercentage, "\n\n");
+    // console.log("Validators and the percentage of their blocks removed\n\n", mapRemovedPercentage, "\n\n");
 
+}
+
+
+async function mergeMaps(trait, map){
+    for(var [key, value] of map.entries()){
+        if(validators[key]===undefined){
+            validators[key] = {}
+        }
+        validators[key][trait] = value;
+    }
 }
 
 async function main(){
@@ -141,6 +157,38 @@ async function main(){
 
     await getLatestBlocks();
     await getAllBlocks();
+
+    await mergeMaps("reorged", mapReorged);
+    await mergeMaps("reorgedPercentage", mapReorgedPercentage);
+    await mergeMaps("removed", mapRemoved);
+    await mergeMaps("removedPercentage", mapRemovedPercentage);
+    await mergeMaps("removedGasUsed", mapRemovedGasUsed);
+    await mergeMaps("mined", mapMined);
+
+    // console.log("Final List \n")
+    // console.log(validators);
+
+    let now = Math.floor(new Date().getTime() / 1000)
+
+    fs.appendFile(`./output/out-${now}.csv`, `validator, reorged, reorgedPercentage, removed, removedPercentage, removedGasUsed, mined` , function (err) {
+        if (err) throw err;
+        console.log('Created output file : ' + `./output/out-${now}.csv`);
+    });
+
+    for (var [key, value] of Object.entries(validators)) {
+        fs.appendFile(`./output/out-${now}.csv`, `\n${key}, ${value.reorged}, ${value.reorgedPercentage}, ${value.removed}, ${value.removedPercentage}, ${value.removedGasUsed}, ${value.mined}` , function (err) {
+            if (err) throw err;
+            console.log('Added to outputFile');
+        });
+    }
+
+    const timer = ms => new Promise(res => setTimeout(res, ms))
+
+    await timer(3000)
+
+    process.exit(0)
+
+    
 }
 
 main()
