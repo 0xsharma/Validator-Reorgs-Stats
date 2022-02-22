@@ -41,7 +41,7 @@ async function main(){
         await axios.post(`http://ethstats-backend-alb-145109141.us-west-2.elb.amazonaws.com:8080/v1/graphql`, {
             query: `
             {
-                headentry(where: {typ: {_eq: "del"}}) {
+                headentry(where: {typ: {_eq: "del"}}, distinct_on: block_number) {
                   block {
                     number
                     miner
