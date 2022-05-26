@@ -10,7 +10,7 @@ var web3 = new Web3(Web3.givenProvider || WSWEB3);
 var config
 var apiKey
 
-var startBlock = 25085190; //starting block for stable ethstats-backednd
+var startBlock = 27000000; //starting block for stable ethstats-backednd
 
 var mapReorged = new Map(); //map for storing the validators and number of blocks displaced by them
 var mapRemoved = new Map(); // map for storing the validators and the number of their blocks removed
@@ -40,7 +40,7 @@ async function getBlockValidator(blockNum){
 }
 
 async function getLatestBlocks() {
-    await axios.post(`http://ethstats-backend-alb-145109141.us-west-2.elb.amazonaws.com:8080/v1/graphql`, {
+    await axios.post(`https://ethstats.polygon.technology:444/v1/graphql`, {
         query: `
         {
             headentry(where: {typ: {_eq: "del"}, block: {number: {_gte: ${startBlock}}}}, distinct_on: block_number) {
